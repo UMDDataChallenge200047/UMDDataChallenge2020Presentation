@@ -56,25 +56,25 @@ hudall$pgm_type_edited[hudall$pgm_type_edited == 1] <- "Public Housing"
 hudall$pgm_type_edited[hudall$pgm_type_edited == 2] <- "HCVP"
 hudall$pgm_type_edited[hudall$pgm_type_edited == 3] <- "Multifamily Housing"
 
-
-
+hudall %>% transform(ASSTN_PYMNT_AMNT = as.numeric(ASSTN_PYMNT_AMNT)) %>% transform(GROSS_RENT_AMNT = as.numeric(GROSS_RENT_AMNT))
 # separates data into complete and incomplete data - data incomplete in the reporting of the program variables: gross home expense for Homeownership, HUD's payment, and total amount family contributes to housing including utility. 
 
-##Changing so that hudnodot no longer includes gross rent
-hudnodot <- hudall[(hudall$gross_rent_amnt_rounded != ".") | (hudall$total_fmly_crbtn_amnt_rounded != ".") ,]
-#hudnodot <- hudall[hudall$total_fmly_crbtn_amnt_rounded != ".",]
-#hudwithdot <- hudall[ (hudall$total_fmly_crbtn_amnt_rounded == ".") ,]
-hudwithdot <- hudall[((hudall$gross_rent_amnt_rounded == ".") | (hudall$total_fmly_crbtn_amnt_rounded == ".")) ,]
+###### Public housing is where gross_rent_amnt is absent, total_fmly_crbtn_amnt_rounded is 
+##Changing so that otherhouse no longer includes gross rent
+#otherhouse <- hudall[(hudall$GROSS_RENT_AMNT != ".") & (hudall$TOTAL_FMLY_CRBTN_AMNT != ".") ,]
+otherhouse <- hudall[hudall$total_fmly_crbtn_amnt_rounded != ".",]
+publichouse <- hudall[ (hudall$total_fmly_crbtn_amnt_rounded == ".") ,]
+#publichouse <- hudall[((hudall$gross_rent_amnt_rounded == ".") | (hudall$total_fmly_crbtn_amnt_rounded == ".")) ,]
 
 
 # writing it to an csv file
-write.csv(hudnodot, "DataChallengeData/Data_Level2_HUD_HUDPrograms_Fulldatasetwithoutdot.csv")
-write.csv(hudwithdot, "DataChallengeData/Data_Level2_HUD_HUDPrograms_Fulldatasetwithdot.csv")
+write.csv(otherhouse, "DataChallengeData/Data_Level2_HUD_HUDPrograms_ASSTN_PYMNT.csv")
+write.csv(publichouse, "DataChallengeData/Data_Level2_HUD_HUDPrograms_PUBLIC_HOUSING.csv")
 
 
 
 ## Create R Shiny analyzing the data
-#summarize dataset and apply the values in this link (https://www.statmethods.net/stats/descriptives.html) to BOTH the hudnodot and hudwithdot datasets along with the household variables/ income variables / program+external variables.
+#summarize dataset and apply the values in this link (https://www.statmethods.net/stats/descriptives.html) to BOTH the otherhouse and publichouse datasets along with the household variables/ income variables / program+external variables.
 library(shiny)
 
 ui <- fluidPage(
@@ -85,7 +85,7 @@ ui <- fluidPage(
   # Sidebar with a slider input for number of bins in histogram and a radio button for analyzing the complete data vs incomplete data (ones with .)
   sidebarLayout(
     sidebarPanel(
-      radioButtons("dots", label = "Complete or Incomplete data set:",choices = c("Complete","Incomplete")),
+      radioButtons("dots", label = "Type of Housing Program",choices = c("HCVP and Multifamily","Public")),
       radioButtons("year", label = "Year of the HUD Census:", choices = as.list(unique(hudall$Year)))
     ),
     
@@ -106,11 +106,11 @@ ui <- fluidPage(
 server <- function(input, output) {
   
   plotInput <- reactive({
-    if (input$dots == "Complete"){
-      changingdat <- hudnodot %>% subset(hudnodot$Year == input$year)
+    if (input$dots == "HCVP and Multifamily"){
+      changingdat <- otherhouse %>% subset(otherhouse$Year == input$year) %>% transform(ASSTN_PYMNT_AMNT = as.numeric(ASSTN_PYMNT_AMNT)) %>% transform(GROSS_RENT_AMNT = as.numeric(GROSS_RENT_AMNT))
     } 
     else{
-      changingdat <- hudwithdot %>% subset(hudwithdot$Year == input$year)
+      changingdat <- publichouse %>% subset(publichouse$Year == input$year)
     }
   })
   
@@ -125,36 +125,22 @@ server <- function(input, output) {
   })
   
   output$info <- renderPrint ({
-    #house <- plotInput() %>% select(CHLDRN_AGE_0_3_CNT, CHLDRN_AGE_4_5_CNT, CHLDRN_AGE_6_12_CNT, CHLDRN_AGE_13_17_CNT, ADLT_AGE_18_21_CNT, ADLT_AGE_22_25_CNT, ADLT_AGE_26_35_CNT, ADLT_AGE_36_49_CNT, ADLT_AGE_50_61_CNT, ADLT_AGE_62_85_CNT, ADLT_AGE_ABOVE85_CNT) 
+    #house <- plotInput() %>% select(HEAD_RACE_CD, TOTAL_ANNL_INCM_AMNT)
+    #df <- aggregate(house, by = list(Race = house$HEAD_RACE_CD), FUN = stat.desc)
+    #Filter(function(x)!all(is.na(x)), df)
     
-    house <- plotInput() %>% select(HEAD_RACE_CD, TOTAL_ANNL_INCM_AMNT)
-    #white <- subset(house, house$HEAD_RACE_CD == "White")
-    #black <- subset(house, house$HEAD_RACE_CD == "Black")
-    #asian <- subset(house, house$HEAD_RACE_CD == "Asian")
-    #NativeAmerican <- subset(house, house$HEAD_RACE_CD == "Native American")
-    #hpi <- subset(house, house$HEAD_RACE_CD == "Hawaiian / Pacific Islander")
-    #oneplus <- subset(house, house$HEAD_RACE_CD == "More than 1")
-    
+    house <- plotInput() %>% select(HEAD_RACE_CD, ASSTN_PYMNT_AMNT)
     df <- aggregate(house, by = list(Race = house$HEAD_RACE_CD), FUN = stat.desc)
-    
     Filter(function(x)!all(is.na(x)), df)
-    #summary(house)
-    #options(scipen=100)
-    #options(digits=3)
-    #summary(white)
-    #summary(black)
-    #summary(asian)
-    #summary(NativeAmerican)
-    #summary(hpi)
-    #summary(oneplus)
-    
-    ###Try to get ethnicity vs household income instead
     
     
   })
   
   output$FacetTest <- renderPlot ({
     ggplot(plotInput(), aes(x=TOTAL_DPNDNT_CNT, y = TOTAL_ANNL_INCM_AMNT)) + geom_point(shape = 1) + facet_grid(pgm_type_edited ~ HEAD_RACE_CD)
+    
+    #ggplot(plotInput(), aes(x=gross_rent_amnt_rounded, y = asstn_pymnt_amnt_rounded)) + geom_point(shape = 1) + facet_grid(pgm_type_edited ~ HEAD_RACE_CD)
+    
     
     #Other variables to compare with annual income:
     #TOTAL_DPNDNT_CNT
