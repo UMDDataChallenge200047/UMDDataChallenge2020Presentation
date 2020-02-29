@@ -59,17 +59,17 @@ hudall$pgm_type_edited[hudall$pgm_type_edited == 3] <- "Multifamily Housing"
 hudall %>% transform(ASSTN_PYMNT_AMNT = as.numeric(ASSTN_PYMNT_AMNT)) %>% transform(GROSS_RENT_AMNT = as.numeric(GROSS_RENT_AMNT))
 # separates data into complete and incomplete data - data incomplete in the reporting of the program variables: gross home expense for Homeownership, HUD's payment, and total amount family contributes to housing including utility. 
 
-###### Public housing is where gross_rent_amnt is absent, total_fmly_crbtn_amnt_rounded is 
+###### Public housing is where gross_rent_amnt is absent, total_fmly_crbtn_amnt_rounded is where  
 ##Changing so that otherhouse no longer includes gross rent
 #otherhouse <- hudall[(hudall$GROSS_RENT_AMNT != ".") & (hudall$TOTAL_FMLY_CRBTN_AMNT != ".") ,]
-otherhouse <- hudall[hudall$total_fmly_crbtn_amnt_rounded != ".",]
+otherhouse <- hudall[hudall$GROSS_RENT_AMNT != ".",]
 publichouse <- hudall[ (hudall$total_fmly_crbtn_amnt_rounded == ".") ,]
 #publichouse <- hudall[((hudall$gross_rent_amnt_rounded == ".") | (hudall$total_fmly_crbtn_amnt_rounded == ".")) ,]
 
 
 # writing it to an csv file
-write.csv(otherhouse, "DataChallengeData/Data_Level2_HUD_HUDPrograms_ASSTN_PYMNT.csv")
-write.csv(publichouse, "DataChallengeData/Data_Level2_HUD_HUDPrograms_PUBLIC_HOUSING.csv")
+#write.csv(otherhouse, "DataChallengeData/Data_Level2_HUD_HUDPrograms_ASSTN_PYMNT.csv")
+#write.csv(publichouse, "DataChallengeData/Data_Level2_HUD_HUDPrograms_PUBLIC_HOUSING.csv")
 
 
 
@@ -93,10 +93,13 @@ ui <- fluidPage(
     mainPanel(
       fluidRow(
         plotOutput("Household"),
-        plotOutput("FacetTest")
+        plotOutput("FacetTest"),
+        plotOutput("LinearRegression")
       ),
       fluidRow(
-        verbatimTextOutput("info")
+        verbatimTextOutput("info"),
+        verbatimTextOutput("prediction")
+        
       )
     )
   )
@@ -136,8 +139,37 @@ server <- function(input, output) {
     
   })
   
+  output$prediction <- renderPrint ({
+    predict_pymnt <- otherhouse %>% select(Year, HEAD_RACE_CD, GROSS_RENT_AMNT, ASSTN_PYMNT_AMNT) %>% transform(ASSTN_PYMNT_AMNT = as.numeric(ASSTN_PYMNT_AMNT)) %>% transform(GROSS_RENT_AMNT = as.numeric(GROSS_RENT_AMNT))
+    
+    df <- split(predict_pymnt, predict_pymnt$HEAD_RACE_CD)
+    library(lattice)
+    library(dplyr)
+    library(broom)
+    
+    ##Another way of doing this, but not as easy to untangle
+    #fitted_models = predict_pymnt %>% group_by(HEAD_RACE_CD) %>% do(model = lm(ASSTN_PYMNT_AMNT ~ Year, data = .))
+    #LinearModel <- fitted_models %>% tidy(model)
+    
+  #Supposedly could compare the individual trends with the overall mixed trends, but keep getting non-numeric argument to mathematical function for the lme() function
+    ##https://stackoverflow.com/questions/1169539/linear-regression-and-group-by-in-r
+    #library(nlme)
+    #lme(ASSTN_PYMNT_AMNT ~ Year, random = ~Year|HEAD_RACE_CD, correlation = corAR1(~Year))
+    
+    LinearModel <- lmList(ASSTN_PYMNT_AMNT ~ Year | HEAD_RACE_CD, data=predict_pymnt)
+    future_asstm <- data.frame(HEAD_RACE_CD = c(unique(predict_pymnt$HEAD_RACE_CD)), Year = c(2023, 2023, 2023, 2023, 2023, 2023) )
+    
+    LinearModel
+    predict(LinearModel, newdata = future_asstm)
+    #LinearModel <- sapply(df, function(x) lm(predict_pymnt$ASSTN_PYMNT_AMNT ~ predict_pymnt$Year, x))
+    
+    
+  })
+  
   output$FacetTest <- renderPlot ({
-    ggplot(plotInput(), aes(x=TOTAL_DPNDNT_CNT, y = TOTAL_ANNL_INCM_AMNT)) + geom_point(shape = 1) + facet_grid(pgm_type_edited ~ HEAD_RACE_CD)
+    predict_pymnt <- otherhouse %>% select(Year, HEAD_RACE_CD, GROSS_RENT_AMNT, ASSTN_PYMNT_AMNT) %>% transform(ASSTN_PYMNT_AMNT = as.numeric(ASSTN_PYMNT_AMNT)) %>% transform(GROSS_RENT_AMNT = as.numeric(GROSS_RENT_AMNT))
+    ggplot(predict_pymnt, aes(x=GROSS_RENT_AMNT, y = ASSTN_PYMNT_AMNT)) + geom_point(shape = 1) + stat_smooth(method = "lm", col = "dodgerblue3") +
+facet_grid(Year ~ HEAD_RACE_CD)
     
     #ggplot(plotInput(), aes(x=gross_rent_amnt_rounded, y = asstn_pymnt_amnt_rounded)) + geom_point(shape = 1) + facet_grid(pgm_type_edited ~ HEAD_RACE_CD)
     
@@ -145,6 +177,37 @@ server <- function(input, output) {
     #Other variables to compare with annual income:
     #TOTAL_DPNDNT_CNT
     #HEAD_AGE_YR_CNT
+  })
+
+  
+  output$LinearRegression <- renderPlot ({
+    predict_pymnt <- otherhouse %>% select(Year, HEAD_RACE_CD, GROSS_RENT_AMNT, ASSTN_PYMNT_AMNT) %>% transform(ASSTN_PYMNT_AMNT = as.numeric(ASSTN_PYMNT_AMNT)) %>% transform(GROSS_RENT_AMNT = as.numeric(GROSS_RENT_AMNT))
+    
+    ggplot(data = predict_pymnt, aes(x = GROSS_RENT_AMNT, y = ASSTN_PYMNT_AMNT, color = HEAD_RACE_CD))    + 
+      geom_point() +
+      stat_smooth(method = "lm", col = "dodgerblue3") +
+      theme(panel.background = element_rect(fill = "white"),
+            axis.line.x=element_line(),
+            axis.line.y=element_line()) +
+      ggtitle("Linear Model Fitted to Data")
+    
+    ###3D prediction
+    
+    #fit_1 <- lm(predict_pymnt$ASSTN_PYMNT_AMNT ~ predict_pymnt$HEAD_RACE_CD, data = predict_pymnt)
+    #ggplot(data=predict_pymnt, aes(fit_1$residuals)) +
+    #  geom_histogram(binwidth = 1, color = "black", fill = "purple4") +
+    #  theme(panel.background = element_rect(fill = "white"),
+    #        axis.line.x=element_line(),
+    #        axis.line.y=element_line()) +
+    #  ggtitle("Histogram for Model Residuals") 
+    
+    #fit_2 <- lm(ASSTN_PYMNT_AMNT ~ Year + GROSS_RENT_AMNT, data = predict_pymnt)
+    #Time <- seq(2009, 2018, by = 1)
+    #Rent <- seq(min(predict_pymnt$GROSS_RENT_AMNT), max(predict_pymnt$GROSS_RENT_AMNT), by = 778)
+    #pred_grid <- expand.grid(Year = Time, Rent = Rent)
+    #pred_grid$ASSTN_PYMNT_AMNT <-predict(fit_2, new = pred_grid, type = "class")
+    #fit_2_sp <- scatterplot3d(pred_grid$Time, pred_grid$Rent, pred_grid$pymnt, angle = 60, color = "dodgerblue", pch = 1, ylab = "Rent", xlab = "Year", zlab = "ASSTN_PYMNT_AMNT" )
+    #fit_2_sp$points3d(predict_pymnt$Year, predict_pymnt$GROSS_RENT_AMNT, predict_pymnt$ASSTN_PYMNT_AMNT, pch=16)
   })
   
 }
